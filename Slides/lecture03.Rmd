@@ -1,0 +1,165 @@
+---
+title: "Lectuere 3. Parametric Methods"
+author: "Alex Shpenev"
+date: "1/23/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Time varying covariates
+
+## The heart transplant data
+
+```{r}
+library(survival)
+result.heart <- coxph(Surv(futime, fustat) ~ transplant + age + + surgery, data = jasa)
+summary(result.heart)
+```
+
+# A simple fix using a landmark
+
+```{r}
+ind30 <- jasa$futime >= 30
+transplant30 <- {{jasa$transplant == 1} & {jasa$wait.time < 30}}
+summary(coxph(Surv(futime, fustat) ~ transplant30 + age + surgery, data=jasa, subset = ind30 ))
+```
+
+# A better approach
+
+```{r}
+id <- 1:nrow(jasa)
+jasaT <- data.frame(id, jasa)
+id.simple <- c(2, 5, 10, 12, 28, 95)
+heart.simple <- jasaT[id.simple,c(1, 10, 9, 6, 11)]
+summary(coxph(Surv(futime, fustat) ~ transplant, data=heart.simple))
+```
+
+```{r}
+sdata <- tmerge(heart.simple, heart.simple, id=id, death=event(futime, fustat), transpl=tdc(wait.time))
+heart.simple.counting <- sdata[,-(2:5)] 
+heart.simple.counting
+```
+
+```{r}
+summary(coxph(Surv(tstart, tstop, death) ~ transpl, data=heart.simple.counting))
+```
+
+
+# The exponential distribution
+
+$$ h(t) = \lambda $$
+
+$$  f(t, \lambda) = \lambda e^{-\lambda t}$$
+$$ S(t, \lambda) = e^{-\lambda t} $$
+
+If we transform the variable T to the form 
+
+$$ T^\alpha $$  
+The resulting variable will have a Weibull distribution
+
+
+# Weibull distribution
+
+$$ h(t) = \alpha \lambda^\alpha t^{\alpha - 1} $$
+
+$$ S(t) = e^{-(\lambda t)^\alpha} $$
+
+
+```{r}
+library(asaur)
+library(dplyr)
+data(gastricXelox)
+glimpse(gastricXelox)
+```
+
+
+```{r}
+timeMonths <- gastricXelox$timeWeeks*7/30.25
+delta <- gastricXelox$delta
+library(survival)
+result.km <- survfit(Surv(timeMonths, delta) ~ 1)
+survEst <- result.km$surv
+survTime <- result.km$time
+logLogSurvEst <- log(-log(survEst))
+logSurvTime <- log(survTime)
+plot(logLogSurvEst ~ logSurvTime)
+result.lm <- lm(logLogSurvEst ~ logSurvTime)
+abline(result.lm)
+```
+
+
+
+
+```{r}
+attach(pharmacoSmoking)
+ttr[ttr == 0] <- 0.5
+result.surv <- survfit(Surv(ttr, relapse) ~ 1)
+survEst <- result.surv$surv
+survTime <- result.surv$time
+logLogSurvEst <- log(-log(survEst))
+logSurvTime <- log(survTime)
+result.lm <- lm(logLogSurvEst ~ logSurvTime)
+result.lm
+plot(logLogSurvEst ~ logSurvTime)
+abline(result.lm)
+```
+
+
+# Maximum likelihood estimation
+
+$$ l(\lambda, \alpha) = \sum (\delta_i log(h(t_i)) + log(S(t_i))) = \\ d \log\alpha + d\alpha\log\lambda + (\alpha - 1) \sum \delta_i \log t_i - \lambda^\alpha \sum t_i^\alpha$$
+
+```{r}
+logLikWeib <- function(par, tt, status) { mu <- par[1]
+   sigma <- par[2]
+   lambda.p <- exp(-mu)
+   alpha.p <- 1/sigma
+   dd <- sum(status)
+   sum.t <- sum(status*log(tt))
+   sum.t.alpha <- sum(tt^alpha.p)
+   term.1 <- dd*log(alpha.p) + alpha.p*dd*log(lambda.p)
+   term.2 <- (alpha.p - 1)*sum.t
+   term.3 <- (lambda.p^alpha.p)*sum.t.alpha
+   result <- term.1 + term.2 - term.3
+result }
+
+result <- optim(par=c(4.568, 2.280), fn=logLikWeib, method= "L-BFGS-B",
+lower=c(0.001, 0.01), upper=c(5, 5), control=list(fnscale = -1),
+tt=ttr, status=relapse)
+
+result$par
+```
+
+
+
+```{r}
+result.survreg.0 <- survreg(Surv(ttr, relapse) ~ 1,  dist = "weibull")
+summary(result.survreg.0)
+```
+
+
+# Accelerated failure time
+
+$$ S_1(t) = S_0(e^{-\gamma}t) $$
+
+$$ h_1(t) = e^{-\gamma}h_0(e^{-\gamma}t) $$
+
+```{r}
+result.survreg.grp <- survreg(Surv(ttr, relapse) ~ grp, dist = "weibull")
+summary(result.survreg.grp)
+result.coxph.grp <- coxph(Surv(ttr, relapse) ~ grp)
+summary(result.coxph.grp)
+```
+
+
+
+# Baseline survival function
+
+$$ \hat{S}_0 (t)  = e^{-(\hat{\lambda}t)^{1/\hat{\sigma}}} $$
+
+
+
+
