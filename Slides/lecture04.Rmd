@@ -1,0 +1,157 @@
+---
+title: "Lecture 04. Interdependence"
+author: "Alex Shpenev"
+date: "1/24/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clustering of observations.
+
+Up until now we were talking about observations as being independent from each other. This is not always the case.
+
+THe ashkenazi dataset on breast cancer:
+```{r}
+library(asaur)
+data(ashkenazi)
+ashkenazi[ashkenazi$famID %in% c(1, 9, 94), ]
+```
+
+```{r}
+library(timereg)
+data(diabetes)
+head(diabetes)
+```
+
+
+
+# The notion of frailty
+
+$$ h_{ij}(t_{ij}) = h_0(t){ij}\omega_i e^{z_{ij}\beta} $$
+
+Frailty is usually modeled using a gamma distribution but sometimmes other distributions are used.
+
+$$ g(\omega, \theta) = \frac{\omega^{1/\theta  - 1}e^{-\omega/\theta}}{\Gamma(1/\theta)\theta^{1/\theta}}  $$
+
+An alternative is to assume the following:
+
+$$ \omega_i = e^{\sigma u_i} $$
+
+
+# A practical example using the Ashkenazi data
+
+Analysis without clustering:
+```{r}
+result.coxph <- coxph(Surv(age, brcancer) ~ mutant, data=ashkenazi)
+summary(result.coxph)
+```
+
+Analysis with clustering:
+
+```{r}
+result.coxph.cluster <- coxph(Surv(age, brcancer) ~ mutant + cluster(famID), data = ashkenazi)
+summary(result.coxph.cluster)
+```
+
+Analysis uzing frailty
+
+```{r}
+result.coxph.frail <- coxph(Surv(age, brcancer) ~ mutant + frailty(famID), data = ashkenazi)
+summary(result.coxph.frail)
+```
+
+Another approach using a new package
+
+
+```{r}
+library(coxme)
+result.coxme <- coxme(Surv(age, brcancer) ~ mutant + (1|famID), data=ashkenazi)
+summary(result.coxme)
+```
+
+
+# Let's look at retinopathy again
+
+```{r}
+result.coxme <- coxme(Surv(time, status) ~ treat + as.factor(adult) + treat*as.factor(adult) + (1 | id), data=diabetes)
+summary(result.coxme)
+```
+
+
+
+# Cause specific hazards
+
+Let's look at prostate cancer data
+```{r}
+data(prostateSurvival)
+prostateSurvival <- within(prostateSurvival, {
+   status.prost <- as.numeric({status == 1}) 
+   status.other <- as.numeric({status == 2})}) 
+attach(prostateSurvival)
+prostateSurvival.highrisk <- prostateSurvival[{{grade == "poor"} & 
+   {stage=="T2"} & {ageGroup == "80+"}},]
+head(prostateSurvival.highrisk) 
+
+result.prostate.km <- survfit(Surv(survTime, event=status.prost) ~ 1,
+    data=prostateSurvival.highrisk)
+result.other.km <- survfit(Surv(survTime, event=status.other) ~ 1,
+    data=prostateSurvival.highrisk) 
+
+surv.other.km <- result.other.km$surv 
+time.km <- result.other.km$time/12 
+surv.prost.km <- result.prostate.km$surv
+cumDist.prost.km <- 1 - surv.prost.km
+plot(cumDist.prost.km ~ time.km, type="s", ylim=c(0,1), lwd=2, 
+    xlab="Years from prostate cancer diagnosis",  col="blue") 
+lines(surv.other.km ~ time.km, type="s", col="green", lwd=2) 
+layout(matrix(c(2,1,3), ncol=3),
+  heights=c(5,5,5), widths=c(0.5, 5, 0.5))
+layout.show(3)
+par(mar=c(5,2,2,2), cex.axis=1.65, cex.lab=1.65)
+
+#par(mar=c(5, 4, 4, 4) + 0.1)
+plot(cumDist.prost.km ~ time.km, type="s", ylim=c(0,1), lwd=2, xlab="Years from prostate cancer diagnosis",
+   axes=F, col="blue")
+lines(surv.other.km ~ time.km, type="s", col="green", lwd=2)
+axis(1)
+axis(2, at=seq(0,1,0.2), las=1)
+#axis(3)
+axis(4, at=seq(0,1,0.2), labels=seq(1,0,-0.2), las=1)
+box()
+text(20/12, 0.25, label="Death from\nprostate cancer", cex=1.65)
+text(20/12, 0.73, label="Death from\nother causes", cex=1.65)
+
+x <- c(0,5)
+y <- c(0,0.25)
+par(mar=c(0,0,0,0))
+plot(x ~ y,type="n",axes=F)
+text(x=0.1,y=2.5,"Probability of death from prostate cancer",srt=90,cex=1.65)
+plot(x ~ y,type="n",axes=F)
+text(x=0.15,y=2.5,"Probability of death from other causes",srt=-90,cex=1.65)
+```
+
+
+# How to account for problems with this graph using the competing risk model
+
+
+```{r}
+rm(status)
+rm(survTime)
+prostateSurvival.T2 <- prostateSurvival[prostateSurvival$stage =="T2",]
+attach(prostateSurvival.T2)
+cov.matrix <- model.matrix(~ grade + ageGroup)
+head(cov.matrix)
+library(cmprsk)
+result.prostate.crr <- crr(survTime, status, cov1 = cov.matrix[,-1], failcode = 1)
+summary(result.prostate.crr)
+```
+
+
+```{r}
+result.other.crr <- crr(survTime, status, cov1 = cov.matrix[,-1], failcode = 2)
+summary(result.other.crr)
+```
+
