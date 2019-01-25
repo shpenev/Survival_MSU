@@ -1,0 +1,40 @@
+---
+title: "Data Management example"
+author: "Alex Shpenev"
+date: "1/25/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Reading data into R
+
+```{r}
+library(readxl)
+raw <- read_excel("Book1.xlsx")
+head(raw)
+```
+
+
+
+# We need to transform this dataset into a format applicable for survival analysis
+
+```{r}
+library(tidyr)
+library(dplyr)
+raw_long <- gather(raw, key = "event", value = "date", -c(id, sex, region) )
+raw_long_sorted <- raw_long %>% arrange(id, date)
+raw_long_sorted
+```
+
+Now we need to create spells
+
+```{r}
+raw_spells <- raw_long_sorted %>% mutate(start = lag(date, 1), end = date)
+raw_spells %>% mutate(type_event = ifelse(!is.na(date), event, "cens")) %>% filter(!is.na(start))
+```
+
